@@ -6,7 +6,7 @@ Base on `go mod graph` but with better human readability
 ## Installation
 
 ```sh
-go get github.com/MaruHyl/gomt/gomt
+go get -u github.com/MaruHyl/gomt/gomt
 ```
 
 ## Command Help
