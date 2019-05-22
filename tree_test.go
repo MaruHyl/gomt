@@ -1,7 +1,10 @@
 package gomt
 
 import (
+	"fmt"
+	"io/ioutil"
 	"testing"
+	"time"
 )
 
 func compare(t *testing.T, a *node, b *node) bool {
@@ -62,7 +65,7 @@ f@v2.0.0 h@v0.0.4`
 		if err != nil {
 			t.Error(err)
 		}
-		root = filterGraph(root, options{maxLevel: 1})
+		root = filter(root, options{maxLevel: 1})
 		a := newNode("a")
 		b := newNode("b@v1.0.0")
 		f := newNode("f@v2.0.0")
@@ -76,7 +79,7 @@ f@v2.0.0 h@v0.0.4`
 		if err != nil {
 			t.Error(err)
 		}
-		root = filterGraph(root, options{target: "c"})
+		root = filter(root, options{target: "c"})
 		a := newNode("a")
 		b := newNode("b@v1.0.0")
 		c := newNode("c@v0.0.8")
@@ -114,4 +117,25 @@ f h`
 			t.Error("unexpected tree, no target")
 		}
 	}
+}
+
+func TestBigCircleGraph(t *testing.T) {
+	startTime := time.Now()
+	defer func() {
+		t.Log(time.Now().Sub(startTime))
+	}()
+	b, err := ioutil.ReadFile("test_big_circle_graph")
+	if err != nil {
+		t.Error(err)
+	}
+	fmt.Println("read done", time.Now().Sub(startTime))
+	root, err := parseGoModGraph(string(b))
+	if err != nil {
+		t.Error(err)
+	}
+	fmt.Println("parse done", time.Now().Sub(startTime))
+	root = filter(root, options{})
+	fmt.Println("filter done", time.Now().Sub(startTime))
+	tree(root, options{})
+	fmt.Println("tree done", time.Now().Sub(startTime))
 }

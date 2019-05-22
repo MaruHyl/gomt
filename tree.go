@@ -31,7 +31,7 @@ func Tree(options ...Option) (string, error) {
 		return "", nil
 	}
 	// filter go mod graph
-	root = filterGraph(root, opts)
+	root = filter(root, opts)
 	// draw graph
 	if opts.json {
 		b, err := json.MarshalIndent(root, "", " ")
@@ -50,8 +50,18 @@ func tree(root *node, opts options) string {
 	const open = "│   "
 
 	lines := make([]string, 0)
+	// avoid loop circle
+	visitMap := make(map[string]struct{})
 	var visit func(n *node, flags []bool)
 	visit = func(n *node, flags []bool) {
+		//
+		if _, ok := visitMap[n.getID()]; ok {
+			return
+		}
+		visitMap[n.getID()] = struct{}{}
+		defer func() {
+			delete(visitMap, n.getID())
+		}()
 		// build prefix
 		prefix := ""
 		for i, flag := range flags {
@@ -90,24 +100,34 @@ func tree(root *node, opts options) string {
 	return strings.Join(lines, "\n")
 }
 
-func filterGraph(root *node, opts options) *node {
+func filter(root *node, opts options) *node {
 	nodeMap := make(map[string]*node)
-	var visit func(n *node, level int) bool
-	visit = func(n *node, level int) bool {
+	filterMap := make(map[string]bool)
+	var visit func(node *node, level int) bool
+	visit = func(node *node, level int) bool {
 		if opts.maxLevel > 0 && level > opts.maxLevel {
 			return false
 		}
-		join := opts.target == "" || n.Mod == opts.target
-		for _, adj := range n.Deps {
-			if visit(adj, level+1) {
-				join = true
-				putEdge(nodeMap, n.getID(), adj.getID())
+		filter, ok := filterMap[node.getID()]
+		if ok {
+			return filter
+		}
+		filter = opts.target == "" || node.Mod == opts.target
+		nodeMap[node.getID()] = newNode(node.getID())
+		// loop circle will be filter out
+		filterMap[node.getID()] = filter
+		for _, dep := range node.Deps {
+			if visit(dep, level+1) {
+				filter = true
+				putEdge(nodeMap, node.getID(), dep.getID())
 			}
 		}
-		return join
+		// reset
+		filterMap[node.getID()] = filter
+		return filter
 	}
 	if visit(root, 0) {
-		return getOrCreateNode(nodeMap, root.getID())
+		return nodeMap[root.getID()]
 	}
 	return nil
 }
@@ -132,10 +152,11 @@ func newNode(id string) *node {
 	}
 }
 
-func putEdge(nodeMap map[string]*node, fromID string, toID string) {
-	fromNode := getOrCreateNode(nodeMap, fromID)
-	toNode := getOrCreateNode(nodeMap, toID)
+func putEdge(nodeMap map[string]*node, fromID, toID string) (fromNode, toNode *node) {
+	fromNode = getOrCreateNode(nodeMap, fromID)
+	toNode = getOrCreateNode(nodeMap, toID)
 	fromNode.Deps = append(fromNode.Deps, toNode)
+	return
 }
 
 func getOrCreateNode(nodeMap map[string]*node, id string) *node {
@@ -156,19 +177,12 @@ func splitID(id string) (mod string, version string) {
 	return
 }
 
-func combineID(mod string, version string) string {
-	if version == "" {
-		return mod
-	}
-	return mod + "@" + version
-}
-
 func parseGoModGraph(result string) (root *node, err error) {
 	if result == "" {
 		return
 	}
 	lines := strings.Split(result, "\n")
-	nodeMap := make(map[string]*node)
+	nodeMap := make(map[string]*node, len(lines)*2)
 	findRoot := false
 	for _, line := range lines {
 		if line == "" {
@@ -182,9 +196,9 @@ func parseGoModGraph(result string) (root *node, err error) {
 		if len(edge) != 2 {
 			return nil, fmt.Errorf("unexpected parse error: %s", line)
 		}
-		putEdge(nodeMap, edge[0], edge[1])
+		from, _ := putEdge(nodeMap, edge[0], edge[1])
 		if !findRoot {
-			root = getOrCreateNode(nodeMap, edge[0])
+			root = from
 			findRoot = true
 		}
 	}
